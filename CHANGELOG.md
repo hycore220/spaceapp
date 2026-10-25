@@ -5,6 +5,18 @@ Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- The 3D Memory Atlas can use WebGL2 with streamed worker layout, indexed
+  picking, bounded labels and a capped Canvas fallback. The admin overview
+  accepts an explicit limit up to 50,000 nodes while retaining the 2,000-node
+  default and label redaction; the demo includes reproducible synthetic sizes.
+
+### Fixed
+
+- Memory overview cache validators distinguish filtered query variants, and
+  parser-worker response deserialization errors end loading with an error.
+
 ## [1.1.7] - 2026-10-21
 
 Source: sanitized Space app @ 3e4572bc97 (4729 files: SpaceApp 77d00f6895 with
