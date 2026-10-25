@@ -669,8 +669,8 @@ export class DemoStore {
     };
   }
 
-  private memoryGraph(query: DemoMemoryGraphQuery = {}): MemoryGraphPayload {
-    const base = this.fixture.memoryWorkspace.graph;
+  /** Apply the same query and induced-edge filtering to canonical or generated demo graphs. */
+  private memoryGraph(query: DemoMemoryGraphQuery = {}, base: MemoryGraphPayload = this.fixture.memoryWorkspace.graph): MemoryGraphPayload {
     const needle = query.q?.trim().toLowerCase();
     const nodes = base.nodes.filter((node) => {
       const record = node.recordId ? this.fixture.memoryWorkspace.nodeDetails[node.id]?.record : null;
@@ -1514,12 +1514,17 @@ export class DemoStore {
         });
       }
       case "memoryGraphOverview": {
-        const graph = this.memoryGraph((args[0] ?? {}) as DemoMemoryGraphQuery);
+        const query = (args[0] ?? {}) as DemoMemoryGraphQuery;
         const size = (args[0] as { demoNodes?: number } | undefined)?.demoNodes;
-        if (size === 100 || size === 2000 || size === 10000 || size === 50000) return generateSyntheticMemoryGraph(size).then(fixture => ({ data: {
-          ...graph, ...fixture, summary: { sourceCount: 20, recordCount: size - 20, nodeCount: size, edgeCount: size * 3, issueCount: 0 },
-          totalMatchingNodes: size, totalMatchingEdges: size * 3, truncated: false
-        } }));
+        if (size === 100 || size === 2000 || size === 10000 || size === 50000) return generateSyntheticMemoryGraph(size).then(fixture => {
+          const graph = this.memoryGraph(query, { ...this.fixture.memoryWorkspace.graph, ...fixture });
+          return { data: {
+            ...graph,
+            summary: { ...graph.summary, recordCount: graph.nodes.filter(node => node.type === "MEMORY").length, issueCount: 0 },
+            totalMatchingNodes: graph.nodes.length, totalMatchingEdges: graph.edges.length, truncated: false
+          } };
+        });
+        const graph = this.memoryGraph(query);
         return Promise.resolve({ data: { ...graph, totalMatchingNodes: graph.nodes.length, totalMatchingEdges: graph.edges.length, truncated: false } });
       }
       case "memoryCalendar": {

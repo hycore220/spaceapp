@@ -73,7 +73,7 @@ vi.mock("../src/features/memory-workspace/DesktopMemoryGraph.js", () => ({
 }));
 
 vi.mock("../src/features/memory-workspace/MemoryGraph3D.js", () => ({
-  MemoryGraph3D: (props: { nodes: Array<{ id: string }>; showTitles: boolean; loading: boolean; coordinates: Map<string, unknown> }) => {
+  MemoryGraph3D: (props: { nodes: Array<{ id: string }>; showTitles: boolean; loading: boolean; coordinates: Map<string, unknown>; onSelectNode: (id: string) => void }) => {
     graph3DRenderer(props);
     return <div data-testid="memory-graph-3d-renderer" data-node-ids={props.nodes.map(node => node.id).join(",")} data-titles-visible={props.showTitles} aria-busy={props.loading} />;
   }
@@ -341,6 +341,27 @@ describe("Memory atlas search-only experience", () => {
     vi.stubGlobal("fetch", fetchMock);
     return fetchMock;
   }
+  it("clears synthetic selection on return to 2D and opens canonical details normally", async () => {
+    installSpaceRuntime({ ...liveRuntime, kind: "demo" });
+    const requests = installFetch();
+    render(<MemoryWorkspace shellMode="desktop" activeRoomId={null} onClose={() => undefined} initialMode="atlas" />);
+    await screen.findByTestId("memory-graph-renderer");
+    const toggle = screen.getByRole("button", { name: "Toggle 3D memory view" });
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByRole("combobox", { name: "Synthetic memory graph size" }), { target: { value: "100" } });
+    act(() => graph3DRenderer.mock.lastCall![0].onSelectNode("fixture-00001"));
+    expect(screen.getByLabelText("Synthetic memory detail")).toBeTruthy();
+    expect(screen.queryByLabelText("Memory node detail")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByLabelText("Synthetic memory detail")).toBeNull();
+    expect(screen.queryByLabelText("Memory node detail")).toBeNull();
+    expect((await screen.findByTestId("memory-graph-renderer")).getAttribute("data-selected-node-id")).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Open map memory" }));
+    await within(await screen.findByLabelText("Memory node detail")).findByText("Durable fact.");
+    expect(requests.mock.calls.some(([url]) => String(url).includes("/memory/nodes/fixture-"))).toBe(false);
+  });
+
   it("keeps pending 3D coordinates stable across unrelated workspace renders", async () => {
     class PendingWorker {
       postMessage() {}

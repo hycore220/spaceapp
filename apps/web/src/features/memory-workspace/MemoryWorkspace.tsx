@@ -65,6 +65,12 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
     setDetailError(null);
   }, []);
 
+  /** Clear synthetic-only selection when returning to 2D while preserving canonical Archive details. */
+  const toggle3D = () => {
+    if (syntheticGraphActive) closeDetail();
+    setView3D(value => !value);
+  };
+
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(queryDraft.trim()), 280);
     return () => window.clearTimeout(timer);
@@ -200,7 +206,7 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
           </div>}
           {workspaceMode === "atlas" ? (
             <div className="memory-atlas-view-controls" aria-label="Memory view controls">
-              <button type="button" aria-label="Toggle 3D memory view" aria-pressed={view3D} onClick={() => setView3D(value => !value)}><span aria-hidden="true">◇</span> {view3D ? "2D" : "3D"}</button>
+              <button type="button" aria-label="Toggle 3D memory view" aria-pressed={view3D} onClick={toggle3D}><span aria-hidden="true">◇</span> {view3D ? "2D" : "3D"}</button>
               <button type="button" aria-label="Toggle memory titles" aria-pressed={showTitles} onClick={() => setShowTitles(value => !value)}>Aa <span>Titles</span></button>
               {view3D ? <button type="button" aria-label="Reset 3D memory view" onClick={() => setReset3D(value => value + 1)}>↺</button> : null}
               {view3D && getSpaceRuntimeKind() === "demo" ? <label>Synthetic nodes <select aria-label="Synthetic memory graph size" value={fixtureCount} onChange={event => { closeDetail(); setFixtureCount(Number(event.currentTarget.value) as typeof fixtureCount); }}><option value="0">Archive</option><option value="100">100</option><option value="2000">2,000</option><option value="10000">10,000</option><option value="50000">50,000</option></select></label> : null}
