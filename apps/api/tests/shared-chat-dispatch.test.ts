@@ -1,5 +1,5 @@
 import { cliToggleRuntimeIds } from "@space/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InMemorySpaceStore, makeSpaceId } from "@space/runtime";
 import {
   buildSharedChatDispatchPrompt,
@@ -113,17 +113,36 @@ describe("pickSharedChatDispatchTarget", () => {
     expect(await pickSharedChatDispatchTarget(store, "cli:deepseek")).toBeNull();
   });
 
-  it("picks the most recently updated eligible pane for the requested runtime", async () => {
-    const store = new InMemorySpaceStore();
-    const older = createIdleDeepseekPane(store, "Deepseek A");
-    const newer = createIdleDeepseekPane(store, "Deepseek B");
-    createRunningSession(store, older.room.id, older.pane.id, "cli:deepseek", "2026-08-15T09:00:00.000Z");
-    createRunningSession(store, newer.room.id, newer.pane.id, "cli:deepseek", "2026-08-15T10:00:00.000Z");
+  it.each(["older-first", "newer-first"] as const)(
+    "picks the most recently updated eligible pane for the requested runtime (%s)",
+    async (creationOrder) => {
+      // The store stamps creation with the current Date instead of fixture input.
+      // Keep real async timers, and prove selection is independent of insertion order.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const store = new InMemorySpaceStore();
+        const older = createIdleDeepseekPane(store, "Deepseek A");
+        const newer = createIdleDeepseekPane(store, "Deepseek B");
+        const fixtures = [
+          { pane: older, updatedAt: "2026-08-15T09:00:00.000Z" },
+          { pane: newer, updatedAt: "2026-08-15T10:00:00.000Z" }
+        ];
+        if (creationOrder === "newer-first") fixtures.reverse();
+        for (const fixture of fixtures) {
+          vi.setSystemTime(new Date(fixture.updatedAt));
+          const sessionId = createRunningSession(store, fixture.pane.room.id, fixture.pane.pane.id, "cli:deepseek", fixture.updatedAt);
+          const session = store.listActivePaneCliSessions("cli:deepseek").find(candidate => candidate.sessionId === sessionId);
+          expect(session?.updatedAt).toBe(fixture.updatedAt);
+        }
 
-    const target = await pickSharedChatDispatchTarget(store, "cli:deepseek");
-    expect(target).not.toBeNull();
-    expect(target!.pane.id).toBe(newer.pane.id);
-  });
+        const target = await pickSharedChatDispatchTarget(store, "cli:deepseek");
+        expect(target).not.toBeNull();
+        expect(target!.pane.id).toBe(newer.pane.id);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it("only considers the requested runtime", async () => {
     const store = new InMemorySpaceStore();
