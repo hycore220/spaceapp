@@ -34,6 +34,36 @@ function routeHarness(graph: ReturnType<typeof fixture>) {
 }
 
 describe("memory overview explicit large limit", () => {
+  it.each(["SEMANTICALLY_RELATED", "CONTAINS"] as const)("retains the reserved topic link when %s edges exceed the response budget", async type => {
+    const graph = taxonomyFixture();
+    graph.edges.unshift(...Array.from({ length: 12 }, (_, i): MemoryGraphEdge => ({
+      id: `edge:dense:${i}`, type, source: "source:root", target: "memory:tagged", confidence: 1, evidence: "Synthetic edge-budget regression.",
+      ...(type === "SEMANTICALLY_RELATED" ? { origin: "DETERMINISTIC_TFIDF" as const } : {})
+    })));
+    const response = await routeHarness(graph).inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=3" });
+    expect(response.statusCode, response.body).toBe(200);
+    const { data } = response.json();
+    expect(data.nodes.map((node: MemoryGraphNode) => node.id)).toEqual(["source:root", "topic:tag", "memory:tagged"]);
+    expect(data.edges).toHaveLength(9);
+    expect(data.edges.some((edge: MemoryGraphEdge) => edge.id === "tag:visible")).toBe(true);
+    expect(data.edges.filter((edge: MemoryGraphEdge) => edge.type === type)).toHaveLength(8);
+    if (type === "CONTAINS") expect(data.edges[0].type).toBe("CONTAINS");
+    expect(data.truncated).toBe(true);
+  });
+  it("reserves a visible member edge for every selected topic despite a dense first topic", async () => {
+    const graph = taxonomyFixture();
+    graph.edges = [
+      ...Array.from({ length: 13 }, (_, i): MemoryGraphEdge => ({ id: `tag:dense:${i}`, type: "TAGGED_WITH", source: "memory:tagged", target: "topic:tag", origin: "EXPLICIT_TAG", confidence: 1, evidence: "Synthetic edge-budget regression." })),
+      { id: "tag:second-topic", type: "TAGGED_WITH", source: "memory:tagged", target: "topic:unlinked", origin: "EXPLICIT_TAG", confidence: 1, evidence: "Synthetic edge-budget regression." }
+    ];
+    const response = await routeHarness(graph).inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=4" });
+    expect(response.statusCode, response.body).toBe(200);
+    const { data } = response.json();
+    expect(data.edges).toHaveLength(12);
+    for (const topic of data.nodes.filter((node: MemoryGraphNode) => node.type === "TOPIC")) {
+      expect(data.edges.some((edge: MemoryGraphEdge) => edge.type === "TAGGED_WITH" && edge.target === topic.id && data.nodes.some((node: MemoryGraphNode) => node.id === edge.source && node.type === "MEMORY"))).toBe(true);
+    }
+  });
   it.each([2000, 50000])("does not reuse another search variant's ETag at limit %i", async limit => {
     const graph = fixture(5); graph.edges = [];
     const app = routeHarness(graph);

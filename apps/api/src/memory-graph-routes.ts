@@ -360,6 +360,32 @@ export function selectOverviewNodes(nodes: MemoryGraphNode[], edges: MemoryGraph
   return [...selected.values()];
 }
 
+/** Bound overview edges while retaining one visible MEMORY link per selected
+ * member-backed TOPIC. Reserve those links before filling the remaining slots,
+ * so even a dense source subgraph cannot consume their budget. Preserve source
+ * edge priority and input order within each rank in the returned response. */
+function selectOverviewEdges(nodes: MemoryGraphNode[], edges: MemoryGraphEdge[], limit: number): MemoryGraphEdge[] {
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const candidates = edges.filter(edge => byId.has(edge.source) && byId.has(edge.target));
+  const memberEdgeByTopic = new Map<string, string>();
+  for (const edge of candidates) {
+    if (edge.type === "TAGGED_WITH" && byId.get(edge.source)?.type === "MEMORY" && byId.get(edge.target)?.type === "TOPIC" && !memberEdgeByTopic.has(edge.target)) {
+      memberEdgeByTopic.set(edge.target, edge.id);
+    }
+  }
+  const reserved = new Set(memberEdgeByTopic.values());
+  const budget = limit * 3;
+  let remaining = budget - reserved.size;
+  /** Keep provenance links first, then topic explanations, then other relations. */
+  const priority = (edge: MemoryGraphEdge) => edge.type === "CONTAINS" || edge.type === "DERIVED_FROM" ? 2 : edge.type === "TAGGED_WITH" ? 1 : 0;
+  return candidates.sort((a, b) => priority(b) - priority(a)).filter(edge => {
+    if (reserved.has(edge.id)) return true;
+    if (remaining <= 0) return false;
+    remaining--;
+    return true;
+  });
+}
+
 export function registerMemoryGraphRoutes(
   app: FastifyInstance,
   options: {
@@ -411,11 +437,7 @@ export function registerMemoryGraphRoutes(
       (query.relationMode !== "RELATIONS" || anchorIds.has(edge.source) || anchorIds.has(edge.target))
     );
     const selectedNodes = selectOverviewNodes(matchingNodes, matchingEdges, query.limit);
-    const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
-    const selectedEdges = matchingEdges
-      .filter((edge) => selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target))
-      .sort((a, b) => Number(b.type === "CONTAINS" || b.type === "DERIVED_FROM") - Number(a.type === "CONTAINS" || a.type === "DERIVED_FROM"))
-      .slice(0, query.limit * 3);
+    const selectedEdges = selectOverviewEdges(selectedNodes, matchingEdges, query.limit);
     const data = memoryGraphOverviewPayloadSchema.parse({
       version: snapshot.version,
       layoutVersion: snapshot.layoutVersion,

@@ -93,7 +93,12 @@ document.querySelector("#benchmark")!.addEventListener("click", () => {
   let previous = 0, count = 0;
   /** Measure controlled camera draws after warmup and preserve all raw interval/submission data for this standalone diagnostic. */
   const run = (timestamp: number) => {
-    if (!renderer || !data || gl?.isContextLost()) { benchmarking = false; return; }
+    if (!renderer || !data || gl?.isContextLost()) {
+      benchmarking = false;
+      (document.querySelector("#benchmark") as HTMLButtonElement).disabled = false;
+      state.textContent = "Measurement aborted: renderer or context unavailable. Measure again after restoration.";
+      return;
+    }
     if (count % 30 === 0) state.textContent = `Measurement frame ${count}/270 · visibility ${document.visibilityState}`;
     if (count >= 30 && previous) intervals.push(timestamp - previous);
     previous = timestamp; camera.yaw += .008; camera.zoom = 1 + .25 * Math.sin(count / 40);

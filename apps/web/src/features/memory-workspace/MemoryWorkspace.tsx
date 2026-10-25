@@ -17,6 +17,7 @@ import { MemoryReviewView } from "./MemoryReviewView.js";
 import "./memory-atlas.css";
 
 const DesktopMemoryGraph = lazy(() => import("./DesktopMemoryGraph.js"));
+const EMPTY_DEPTH = new Map<string, MemoryPoint3D>();
 
 /** Coordinate canonical memory search/details,2D and streamed3D views. Demo-only synthetic graphs have local details and disable canonical search until Archive is restored. */
 export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }: {
@@ -235,7 +236,7 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
                   <DesktopMemoryGraph nodes={smallAtlas.nodes} edges={smallAtlas.edges} displayMode="SEMANTIC" relationMode="RELATIONS" selectedNodeId={selectedNodeId} onSelectNode={selectNode} loading={loading || (typeof Worker !== "undefined" && layout?.atlas !== smallAtlas)} error={error} totalNodes={graph?.data.totalMatchingNodes ?? 0} totalEdges={graph?.data.totalMatchingEdges ?? 0} truncated={graph?.data.truncated ?? false} atlasPositions={layout?.atlas === smallAtlas ? layout.positions : smallAtlas.positions} showTitles={showTitles} />
                 </Suspense>
               </MemoryGraphErrorBoundary> : null}</div>
-              {view3D ? <MemoryGraph3D nodes={atlas.nodes} edges={atlas.edges} positions={atlasPositions} coordinates={layout3D?.depth ?? new Map()} renderData={layout3D?.data} layoutVolume={layout3D?.volume} forceCanvas={typeof Worker === "undefined"} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={fixtureCount ? id => setSelectedNodeId(id) : selectNode} loading={loading3D || layoutPending} resetToken={reset3D} benchmarkToken={benchmarkMode ? benchmarkToken : 0} benchmarkGpuTimings={benchmarkGpuTimings} benchmarkScene={benchmarkScene} benchmarkNativeEdges={benchmarkNativeEdges} benchmarkProjectedEdges={benchmarkProjectedEdges} onBenchmarkRunningChange={setBenchmarkRunning} onBenchmarkResult={setBenchmarkResult} /> : null}
+              {view3D ? <MemoryGraph3D nodes={atlas.nodes} edges={atlas.edges} positions={atlasPositions} coordinates={layout3D?.depth ?? EMPTY_DEPTH} renderData={layout3D?.data} layoutVolume={layout3D?.volume} forceCanvas={typeof Worker === "undefined"} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={fixtureCount ? id => setSelectedNodeId(id) : selectNode} loading={loading3D || layoutPending} resetToken={reset3D} benchmarkToken={benchmarkMode ? benchmarkToken : 0} benchmarkGpuTimings={benchmarkGpuTimings} benchmarkScene={benchmarkScene} benchmarkNativeEdges={benchmarkNativeEdges} benchmarkProjectedEdges={benchmarkProjectedEdges} onBenchmarkRunningChange={setBenchmarkRunning} onBenchmarkResult={setBenchmarkResult} /> : null}
               {view3D && error3D ? <div role="alert">{error3D}</div> : null}
             </div>
             {!selectedNodeId && displayGroups.length > 0 ? <aside className="memory-atlas-topics" aria-label="Map topics">

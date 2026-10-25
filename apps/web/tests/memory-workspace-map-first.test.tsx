@@ -31,6 +31,7 @@ const webglRenderer = vi.hoisted(() => {
 vi.mock("../src/features/memory-workspace/memory-webgl-renderer.js", () => ({ MemoryWebGLRenderer: webglRenderer.Renderer }));
 
 const graphRenderer = vi.hoisted(() => vi.fn());
+const graph3DRenderer = vi.hoisted(() => vi.fn());
 const graphLifecycle = vi.hoisted(() => ({
   mounted: vi.fn(),
   unmounted: vi.fn()
@@ -72,9 +73,10 @@ vi.mock("../src/features/memory-workspace/DesktopMemoryGraph.js", () => ({
 }));
 
 vi.mock("../src/features/memory-workspace/MemoryGraph3D.js", () => ({
-  MemoryGraph3D: (props: { nodes: Array<{ id: string }>; showTitles: boolean; loading: boolean }) => (
-    <div data-testid="memory-graph-3d-renderer" data-node-ids={props.nodes.map(node => node.id).join(",")} data-titles-visible={props.showTitles} aria-busy={props.loading} />
-  )
+  MemoryGraph3D: (props: { nodes: Array<{ id: string }>; showTitles: boolean; loading: boolean; coordinates: Map<string, unknown> }) => {
+    graph3DRenderer(props);
+    return <div data-testid="memory-graph-3d-renderer" data-node-ids={props.nodes.map(node => node.id).join(",")} data-titles-visible={props.showTitles} aria-busy={props.loading} />;
+  }
 }));
 
 vi.mock("../src/features/memory-workspace/MemoryCalendarView.js", () => ({
@@ -328,7 +330,7 @@ beforeEach(() => {
 });
 
 describe("Memory atlas search-only experience", () => {
-  afterEach(() => { graphRenderer.mockReset(); graphLifecycle.mounted.mockReset(); graphLifecycle.unmounted.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  afterEach(() => { graphRenderer.mockReset(); graph3DRenderer.mockReset(); graphLifecycle.mounted.mockReset(); graphLifecycle.unmounted.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   function installFetch() {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -339,6 +341,22 @@ describe("Memory atlas search-only experience", () => {
     vi.stubGlobal("fetch", fetchMock);
     return fetchMock;
   }
+  it("keeps pending 3D coordinates stable across unrelated workspace renders", async () => {
+    class PendingWorker {
+      postMessage() {}
+      terminate() {}
+    }
+    vi.stubGlobal("Worker", PendingWorker);
+    vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockResolvedValue(graphPayload({}) as MemoryGraphOverviewResponse);
+    render(<MemoryWorkspace shellMode="desktop" activeRoomId={null} onClose={() => undefined} initialMode="atlas" />);
+    await screen.findByTestId("memory-graph-renderer");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
+    await waitFor(() => expect(graph3DRenderer.mock.lastCall?.[0].loading).toBe(true));
+    const pendingCoordinates = graph3DRenderer.mock.lastCall![0].coordinates;
+    expect(pendingCoordinates.size).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Toggle memory titles" }));
+    expect(graph3DRenderer.mock.lastCall![0].coordinates).toBe(pendingCoordinates);
+  });
   it.each(["Calendar", "Review"])("opens canonical details in %s after leaving a synthetic 3D graph", async mode => {
     installSpaceRuntime({ ...liveRuntime, kind: "demo" });
     installFetch();
