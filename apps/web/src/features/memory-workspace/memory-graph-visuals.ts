@@ -6,6 +6,27 @@ export interface MemoryGraphVisualStyle {
   label: string;
 }
 
+/** Original 3D Canvas stroke contract. Widths are CSS pixels, not device pixels;
+ * opacity comes only from geometric antialias coverage, never an extra fade. */
+export const MEMORY_GRAPH_3D_EDGE_STROKES = {
+  incident: { color: "#98dafa", lineWidthCss: 1.15 },
+  focusedOther: { color: "#14202b", lineWidthCss: 0.55 },
+  derived: { color: "#385068", lineWidthCss: 0.55 },
+  regular: { color: "#203343", lineWidthCss: 0.55 }
+} as const;
+
+/** Resolve the shared original 3D stroke color and CSS width, then derive physical-pixel coverage bounds from a valid positive pixel ratio. */
+export function memoryGraph3DEdgeStroke({ incident, hasFocus, derived, pixelRatio = 1 }: {
+  incident: boolean; hasFocus: boolean; derived: boolean; pixelRatio?: number;
+}) {
+  const style = incident ? MEMORY_GRAPH_3D_EDGE_STROKES.incident : hasFocus ? MEMORY_GRAPH_3D_EDGE_STROKES.focusedOther :
+    derived ? MEMORY_GRAPH_3D_EDGE_STROKES.derived : MEMORY_GRAPH_3D_EDGE_STROKES.regular;
+  const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
+  const lineWidthPixels = style.lineWidthCss * ratio;
+  return { ...style, opacity: 1, lineWidthPixels, halfWidthPixels: lineWidthPixels / 2,
+    outerRadiusPixels: lineWidthPixels / 2 + 0.5 };
+}
+
 const nodeStyles: Record<MemoryGraphNode["type"], MemoryGraphVisualStyle> = {
   SOURCE: { color: "#8796a8", size: 7, label: "Source" },
   SECTION: { color: "#b79c79", size: 4.5, label: "Section" },
@@ -28,6 +49,7 @@ export function isMemoryIndexLabel(label: string | null | undefined): boolean {
   return /^(?:space_memory|gemini_history)\.md$/.test(label ?? "");
 }
 
+/** Recognize a canonical memory-index SOURCE by its label or final path segment, including legacy filenames. */
 export function isCanonicalIndexNode(node: MemoryGraphNode): boolean {
   return node.type === "SOURCE" && (
     isMemoryIndexLabel(node.label) ||
@@ -46,6 +68,7 @@ const nodeTypePriority: Record<MemoryGraphNode["type"], number> = {
 };
 const MAX_FORCED_HUB_LABELS = 4;
 
+/** Hash a string into a stable unit interval for visual placement; this noncryptographic seed does not use wall-clock randomness. */
 function stableFraction(value: string): number {
   let hash = 2_166_136_261;
   for (let index = 0; index < value.length; index += 1) {
@@ -55,10 +78,12 @@ function stableFraction(value: string): number {
   return (hash >>> 0) / 0xffff_ffff;
 }
 
+/** Round a visual coordinate to six decimal places for stable serialized fallback positions. */
 function round(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
+/** Resolve canonical-index and explicit/derived-topic overrides before the default style for this node type. */
 export function memoryGraphNodeStyle(
   node: MemoryGraphNode,
   topicOrigin: MemoryGraphTopicOrigin | null = null
@@ -73,6 +98,7 @@ export function memoryGraphNodeStyle(
   return nodeStyles[node.type];
 }
 
+/** Keep canonical-index labels and the bounded highest-degree hubs visible under the existing2D labeling rule. */
 export function shouldForceMemoryGraphLabel(
   node: MemoryGraphNode,
   _topicOrigin: MemoryGraphTopicOrigin | null,
@@ -82,6 +108,7 @@ export function shouldForceMemoryGraphLabel(
   return isCanonicalIndexNode(node) || (degree >= 3 && degreeRank < MAX_FORCED_HUB_LABELS);
 }
 
+/** Count visible explicit/derived topics and semantic links using only edges whose endpoints are in this node set. */
 export function memoryGraphTaxonomySummary(
   nodes: MemoryGraphNode[],
   edges: MemoryGraphEdge[]
@@ -99,6 +126,7 @@ export function memoryGraphTaxonomySummary(
   return { explicitTags: explicitTags.size, derivedTopics: derivedTopics.size, semanticLinks };
 }
 
+/** Resolve the existing semantic edge style, including confidence-scaled similarity width, without changing the graph data. */
 export function memoryGraphEdgeStyle(edge: MemoryGraphEdge): MemoryGraphVisualStyle {
   switch (edge.type) {
     case "TAGGED_WITH":
@@ -124,6 +152,7 @@ export function memoryGraphEdgeStyle(edge: MemoryGraphEdge): MemoryGraphVisualSt
   }
 }
 
+/** Use finite stored coordinates for the chosen2D relation mode, otherwise derive a stable visual fallback from node identity and ordinal. */
 export function resolveMemoryGraphPosition(
   node: MemoryGraphNode,
   index: number,
@@ -143,6 +172,7 @@ export function resolveMemoryGraphPosition(
   };
 }
 
+/** Return a sorted copy prioritizing canonical indexes, degree, type and ID; leave the caller node/edge arrays unchanged. */
 export function orderMemoryGraphNodes(nodes: MemoryGraphNode[], edges: MemoryGraphEdge[]): MemoryGraphNode[] {
   const degree = new Map(nodes.map((node) => [node.id, 0]));
   for (const edge of edges) {

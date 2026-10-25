@@ -312,9 +312,13 @@ function memoryIssuesRevisionHash(snapshotRevision: string, states: MemoryIssueS
   return digest(JSON.stringify({ snapshotRevision, stateRevisions }));
 }
 
-// Keep the same payload budget while retaining the taxonomy needed to interpret a large archive.
-export function selectOverviewNodes(nodes: MemoryGraphNode[], edges: MemoryGraphEdge[]): MemoryGraphNode[] {
-  if (nodes.length <= 2000) return nodes;
+/** Select at most the normalized1..50k node budget, retaining core sources first.
+ * Reserve member-backed topics with a visible MEMORY atomically, so truncation
+ * cannot expose an unexplained topic. Returned nodes reference the input nodes;
+ * redaction and edge truncation remain the route's responsibility. */
+export function selectOverviewNodes(nodes: MemoryGraphNode[], edges: MemoryGraphEdge[], requestedLimit = 2000): MemoryGraphNode[] {
+  const limit = Math.max(1, Math.min(50000, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 2000));
+  if (nodes.length <= limit) return nodes;
   const members = new Map<string, Set<string>>();
   const explicit = new Set<string>();
   const byId = new Map(nodes.map(node => [node.id, node]));
@@ -329,15 +333,29 @@ export function selectOverviewNodes(nodes: MemoryGraphNode[], edges: MemoryGraph
     members.get(b.id)!.size - members.get(a.id)!.size || a.id.localeCompare(b.id)
   ).slice(0, 160);
   const sources = nodes.filter(node => node.type === "SOURCE").sort((a, b) => Number(isMemoryCoreFile(b.label)) - Number(isMemoryCoreFile(a.label)) || a.id.localeCompare(b.id)).slice(0, 120);
-  const selected = new Map([...sources, ...topics].map(node => [node.id, node]));
-  // Give every reserved topic a real visible neighbor, even for sparse explicit tags.
-  for (const topic of topics) {
-    const first = [...members.get(topic.id)!].sort()[0];
-    if (first) selected.set(first, byId.get(first)!);
-  }
+  const selected = new Map(sources.slice(0, limit).map(node => [node.id, node]));
+  /** Add a topic/member pair only when both fit; prefer an already visible member. */
+  const reserveTopic = (topic: MemoryGraphNode) => {
+    const memberIds = [...(members.get(topic.id) ?? [])].sort();
+    // Reuse a visible member before spending another slot on a shared neighbor.
+    const neighborId = memberIds.find(id => selected.has(id)) ?? memberIds[0];
+    if (!neighborId) return;
+    const required = Number(!selected.has(topic.id)) + Number(!selected.has(neighborId));
+    if (selected.size + required > limit) return;
+    // Add the topic and its visible MEMORY atomically; later truncation would
+    // otherwise keep a topic while dropping the neighbor that explains it.
+    selected.set(topic.id, topic);
+    selected.set(neighborId, byId.get(neighborId)!);
+  };
+  for (const topic of topics) reserveTopic(topic);
   for (const node of nodes) {
-    if (selected.size >= 2000) break;
-    selected.set(node.id, node);
+    if (selected.size >= limit) break;
+    if (selected.has(node.id)) continue;
+    // Enforce the pair budget only when this filtered graph contains an eligible
+    // MEMORY member. TOPIC-only queries and genuinely unlinked topics still fill
+    // normally; a known member-backed topic must not bypass a failed reservation.
+    if (node.type === "TOPIC" && members.has(node.id)) reserveTopic(node);
+    else selected.set(node.id, node);
   }
   return [...selected.values()];
 }
@@ -361,7 +379,14 @@ export function registerMemoryGraphRoutes(
       : await options.service.getSnapshot();
     const { isStale } = snapshotData;
     const snapshot = await options.service.withSourceTopology?.(snapshotData.snapshot) ?? snapshotData.snapshot;
-    if (setSnapshotEtag(request, reply, snapshot.revisionHash ?? snapshot.sourceHash)) return reply.code(304).send();
+    const revision = snapshot.revisionHash ?? snapshot.sourceHash;
+    const { limit, relationMode, month, ...filters } = query;
+    // Only the unfiltered legacy representation keeps the snapshot validator.
+    // Every filtered/large variant needs its own key, including the default2k cap.
+    const legacyVariant = limit === 2000 && relationMode === "RELATIONS" && (!month || month === "all") &&
+      Object.values(filters).every(value => value === undefined);
+    const overviewRevision = legacyVariant ? revision : digest(`${revision}:${JSON.stringify(query)}`);
+    if (setSnapshotEtag(request, reply, overviewRevision)) return reply.code(304).send();
     const availableMonths = await options.service.listAvailableMonths();
 
     const anchors = filterNodes(snapshot, query).sort((left, right) => left.id.localeCompare(right.id));
@@ -385,12 +410,12 @@ export function registerMemoryGraphRoutes(
       matchingNodeIds.has(edge.target) &&
       (query.relationMode !== "RELATIONS" || anchorIds.has(edge.source) || anchorIds.has(edge.target))
     );
-    const selectedNodes = selectOverviewNodes(matchingNodes, matchingEdges);
+    const selectedNodes = selectOverviewNodes(matchingNodes, matchingEdges, query.limit);
     const selectedNodeIds = new Set(selectedNodes.map((node) => node.id));
     const selectedEdges = matchingEdges
       .filter((edge) => selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target))
       .sort((a, b) => Number(b.type === "CONTAINS" || b.type === "DERIVED_FROM") - Number(a.type === "CONTAINS" || a.type === "DERIVED_FROM"))
-      .slice(0, 6000);
+      .slice(0, query.limit * 3);
     const data = memoryGraphOverviewPayloadSchema.parse({
       version: snapshot.version,
       layoutVersion: snapshot.layoutVersion,

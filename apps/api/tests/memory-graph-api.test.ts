@@ -161,6 +161,17 @@ function changeSetInput() {
 }
 
 describe("Memory graph API", () => {
+  it("keeps the large overview authenticated and validates the explicit node budget", async () => {
+    const app = await memoryGraphApp(true);
+    try {
+      const unauthenticated = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=50000" });
+      expect(unauthenticated.statusCode).toBe(401);
+      const invalid = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=50001", headers: { cookie } });
+      expect(invalid.statusCode).toBe(422);
+      const valid = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?limit=50000", headers: { cookie } });
+      expect(valid.statusCode).toBe(200); expect(valid.body).not.toContain("raw-test-value");
+    } finally { await app.close(); }
+  });
   it("invalidates immediately after canonical save and links the cache record", async () => {
     const order: string[] = [];
     const store = new InMemorySpaceStore();
@@ -498,7 +509,13 @@ describe("Memory graph API", () => {
       headers: { cookie }
     });
     expect(june.statusCode).toBe(200);
-    expect(june.headers.etag).toBe(`"${"e".repeat(64)}"`);
+    expect(june.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
+    expect(june.headers.etag).not.toBe(`"${"e".repeat(64)}"`);
+    const sameJune = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?month=2026-06", headers: { cookie, "if-none-match": june.headers.etag } });
+    expect(sameJune.statusCode).toBe(304);
+    const differentMonth = await app.inject({ method: "GET", url: "/api/admin/memory/graph/overview?month=2026-07", headers: { cookie, "if-none-match": june.headers.etag } });
+    expect(differentMonth.statusCode).toBe(200);
+    expect(differentMonth.headers.etag).not.toBe(june.headers.etag);
     expect(june.json()).toMatchObject({
       data: {
         months: ["2026-06", "2026-07"],

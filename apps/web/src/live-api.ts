@@ -6,6 +6,7 @@ import type { DesignAsset, DesignBrandKit, DesignBrandKitInput, DesignEvent, Des
 import type { AppStudioEvent, AppStudioPaneMetadata, AppStudioPreview, AppStudioRunStatus } from "@space/contracts";
 import type { MaintenancePlanRequest, MaintenanceApplyRequest, MaintenanceAutopilotStatus, MaintenanceAutopilotScheduleUpdate } from "@space/contracts";
 import { singleFlightRequest } from "./single-flight-request.js";
+import { readLargeMemoryOverview } from "./features/memory-workspace/memory-overview-response.js";
 import type { TaskTitleSettings, TaskTitleCandidateStatus } from "@space/contracts";
 import type { VaultPendingSecret, VaultSignupGrant, VaultSignupGrantRequest, VaultAuditRecord, VaultItemMetadata, VaultItemRecord, VaultItemRecordInput, VaultKdfParams, VaultRecovery, VaultSymmetricEnvelope, VaultTransportEnvelope } from "@space/contracts";
 import type {
@@ -949,7 +950,7 @@ export interface VaultStateResponse {
   vault: { vaultId: string; epoch: number; delegationGeneration: number; kdf: VaultKdfParams; unlockKeyVersion: number; hasRecovery: boolean; auditSeq: number } | null;
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+async function request<T>(url: string, init?: RequestInit, parseSuccess?: (response: Response) => Promise<unknown>): Promise<T> {
   const headers: Record<string, string> = {
     ...((init?.headers as Record<string, string> | undefined) ?? {})
   };
@@ -974,7 +975,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw upstreamTransportError(error);
   }
 
-  const payload = await readResponsePayload(response);
+  const payload = await (response.ok && parseSuccess ? parseSuccess(response) : readResponsePayload(response));
   reportCoreApiResponse(response, payload, requestStartedAt);
   if (response.status === 401 || response.status === 403) {
     csrfToken = null;
@@ -3145,6 +3146,9 @@ export const api = {
     return request<MemoryGraphResponse>(`/api/admin/memory/graph${suffix ? `?${suffix}` : ""}`);
   },
   memoryGraphOverview: (query: {
+    limit?: number;
+    /** Demo runtime only; never forwarded to the live service. */
+    demoNodes?: 100 | 2000 | 10000 | 50000;
     q?: string;
     nodeType?: MemoryGraphNodeType;
     scope?: MemoryEntry["scope"];
@@ -3155,6 +3159,7 @@ export const api = {
     relationMode?: "CLUSTERED" | "RELATIONS";
   } = {}) => {
     const params = new URLSearchParams();
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
     if (query.q) params.set("q", query.q);
     if (query.nodeType) params.set("nodeType", query.nodeType);
     if (query.scope) params.set("scope", query.scope);
@@ -3164,7 +3169,7 @@ export const api = {
     if (query.month) params.set("month", query.month);
     if (query.relationMode) params.set("relationMode", query.relationMode);
     const suffix = params.toString();
-    return request<MemoryGraphOverviewResponse>(`/api/admin/memory/graph/overview${suffix ? `?${suffix}` : ""}`);
+    return request<MemoryGraphOverviewResponse>(`/api/admin/memory/graph/overview${suffix ? `?${suffix}` : ""}`, undefined, (query.limit ?? 2000) > 2000 ? readLargeMemoryOverview : undefined);
   },
   memoryCalendar: (query: MemoryCalendarQuery = {}) => {
     const params = new URLSearchParams();
