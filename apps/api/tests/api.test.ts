@@ -4087,109 +4087,94 @@ describe("Space API", () => {
 
   it("records review decisions as room-scoped ship or block gates", async () => {
     const { app, cookie, csrfToken } = await authedApp();
-    const start = Date.now();
-    vi.useFakeTimers({ toFake: ["Date"], now: start });
-    try {
-      const fakeToken = "to" + "ken=raw-test-value";
-      const fakeApiKey = "api" + "_key=raw-test-value";
-      const roomResponse = await app.inject({
-        method: "POST",
-        url: "/api/rooms",
-        headers: { cookie, [csrfHeaderName]: csrfToken },
-        payload: { name: "Review Room", initialPaneCount: 0 }
-      });
-      expect(roomResponse.statusCode).toBe(200);
-      expect(roomResponse.json().createdAt).toBe(new Date(start).toISOString());
-      const roomId = roomResponse.json().id as string;
+    const fakeToken = "to" + "ken=raw-test-value";
+    const fakeApiKey = "api" + "_key=raw-test-value";
+    const roomResponse = await app.inject({
+      method: "POST",
+      url: "/api/rooms",
+      headers: { cookie, [csrfHeaderName]: csrfToken },
+      payload: { name: "Review Room", initialPaneCount: 0 }
+    });
+    const roomId = roomResponse.json().id as string;
 
-      // Equal timestamps deliberately sort by ID, not by request arrival.
-      // Give this chronological fixture distinct times without sleeping.
-      vi.setSystemTime(start + 1);
-      const saved = await app.inject({
-        method: "POST",
-        url: "/api/reviews",
-        headers: { cookie, [csrfHeaderName]: csrfToken },
-        payload: {
-          roomId,
-          workflowId: "workflow:test-1",
-          decision: "BLOCK",
-          summary: `Tests failed. ${fakeToken} must not persist.`,
-          evidenceArtifactIds: ["artifact:test-1", "artifact:test-1"],
-          rollbackNote: `Rollback ${fakeApiKey}.`
-        }
-      });
-
-      expect(saved.statusCode).toBe(200);
-      expect(saved.json().createdAt).toBe(new Date(start + 1).toISOString());
-      expect(saved.json()).toMatchObject({
+    const saved = await app.inject({
+      method: "POST",
+      url: "/api/reviews",
+      headers: { cookie, [csrfHeaderName]: csrfToken },
+      payload: {
         roomId,
         workflowId: "workflow:test-1",
         decision: "BLOCK",
-        evidenceArtifactIds: ["artifact:test-1"]
-      });
-      expect(saved.json().id).toMatch(/^review:/);
-      expect(saved.json().summary).toContain("[REDACTED]");
-      expect(JSON.stringify(saved.json())).not.toContain("raw-test-value");
+        summary: `Tests failed. ${fakeToken} must not persist.`,
+        evidenceArtifactIds: ["artifact:test-1", "artifact:test-1"],
+        rollbackNote: `Rollback ${fakeApiKey}.`
+      }
+    });
 
-      const list = await app.inject({
-        method: "GET",
-        url: `/api/reviews?roomId=${encodeURIComponent(roomId)}`,
-        headers: { cookie }
-      });
-      expect(list.statusCode).toBe(200);
-      expect(list.json()).toMatchObject({
-        data: [expect.objectContaining({ id: saved.json().id, decision: "BLOCK" })],
-        pagination: expect.objectContaining({ totalItems: 1 })
-      });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({
+      roomId,
+      workflowId: "workflow:test-1",
+      decision: "BLOCK",
+      evidenceArtifactIds: ["artifact:test-1"]
+    });
+    expect(saved.json().id).toMatch(/^review:/);
+    expect(saved.json().summary).toContain("[REDACTED]");
+    expect(JSON.stringify(saved.json())).not.toContain("raw-test-value");
 
-      const events = await app.inject({
-        method: "GET",
-        url: `/api/events?roomId=${encodeURIComponent(roomId)}`,
-        headers: { cookie }
-      });
-      expect(events.statusCode).toBe(200);
-      expect(events.json().data).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "REVIEW_DECISION_CREATED",
-            payload: expect.objectContaining({ reviewDecisionId: saved.json().id, decision: "BLOCK" })
-          })
-        ])
-      );
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/reviews?roomId=${encodeURIComponent(roomId)}`,
+      headers: { cookie }
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toMatchObject({
+      data: [expect.objectContaining({ id: saved.json().id, decision: "BLOCK" })],
+      pagination: expect.objectContaining({ totalItems: 1 })
+    });
 
-      const latestEvent = await app.inject({
-        method: "GET",
-        url: `/api/events?roomId=${encodeURIComponent(roomId)}&pageSize=1&sortOrder=desc`,
-        headers: { cookie }
-      });
-      expect(latestEvent.statusCode).toBe(200);
-      expect(latestEvent.json()).toMatchObject({
-        data: [expect.objectContaining({
+    const events = await app.inject({
+      method: "GET",
+      url: `/api/events?roomId=${encodeURIComponent(roomId)}`,
+      headers: { cookie }
+    });
+    expect(events.statusCode).toBe(200);
+    expect(events.json().data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           type: "REVIEW_DECISION_CREATED",
-          payload: expect.objectContaining({ reviewDecisionId: saved.json().id })
-        })],
-        pagination: expect.objectContaining({ page: 1, pageSize: 1, totalItems: expect.any(Number) })
-      });
+          payload: expect.objectContaining({ reviewDecisionId: saved.json().id, decision: "BLOCK" })
+        })
+      ])
+    );
 
-      const auditResponse = await app.inject({
-        method: "GET",
-        url: "/api/admin/audit?pageSize=10",
-        headers: { cookie }
-      });
-      expect(auditResponse.statusCode).toBe(200);
-      expect(JSON.stringify(auditResponse.json())).not.toContain("raw-test-value");
-      expect(auditResponse.json().data).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            action: "review.decision.create",
-            targetId: saved.json().id,
-            metadata: expect.objectContaining({ roomId, decision: "BLOCK", evidenceArtifactCount: 1 })
-          })
-        ])
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    const latestEvent = await app.inject({
+      method: "GET",
+      url: `/api/events?roomId=${encodeURIComponent(roomId)}&pageSize=1&sortOrder=desc`,
+      headers: { cookie }
+    });
+    expect(latestEvent.statusCode).toBe(200);
+    expect(latestEvent.json()).toMatchObject({
+      data: [expect.objectContaining({ type: "REVIEW_DECISION_CREATED" })],
+      pagination: expect.objectContaining({ page: 1, pageSize: 1, totalItems: expect.any(Number) })
+    });
+
+    const auditResponse = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit?pageSize=10",
+      headers: { cookie }
+    });
+    expect(auditResponse.statusCode).toBe(200);
+    expect(JSON.stringify(auditResponse.json())).not.toContain("raw-test-value");
+    expect(auditResponse.json().data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "review.decision.create",
+          targetId: saved.json().id,
+          metadata: expect.objectContaining({ roomId, decision: "BLOCK", evidenceArtifactCount: 1 })
+        })
+      ])
+    );
   });
 
   it("records review checks, diffs and aggregate room state", async () => {

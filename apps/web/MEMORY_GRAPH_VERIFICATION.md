@@ -14,7 +14,7 @@ query variants, including filtered requests at the default limit. Only the
 unfiltered legacy response retains the plain snapshot revision as its ETag.
 
 The existing layout worker publishes a usable seed before completing layout.
-Up to2,000 nodes, its final coordinates use the original `layoutMemoryNetwork3D`.
+Up to 2,000 nodes, its final coordinates use the original `layoutMemoryNetwork3D`.
 Above that size, `createProgressiveMemoryLayout` uses ID-sorted nodes/edges,
 deterministic XYZ seeds and bounded repulsion representatives. It publishes
 every fourth iteration through iteration 60. The same input has repeatable
@@ -26,7 +26,7 @@ under determinism and existing-test requirements in
 Workers own graph preparation and BVH refits. Topology/style buffers transfer to
 the UI once, while subsequent messages transfer coordinates and BVH bounds.
 Cancelled generations stop publishing. Camera movement reuses uploaded buffers.
-Canvas fallback keeps at most2,000 nodes and 6,000 edges when WebGL2 is unavailable
+Canvas fallback keeps at most 2,000 nodes and 6,000 edges when WebGL2 is unavailable
 or lost; restoration is handled when the browser delivers its restored event.
 
 ## Reproduce the feature and tests
@@ -46,7 +46,7 @@ npm run dev:web
 ```
 
 Open `/demo-workspace`, then Workspace → Memory → Atlas → 3D. The demo-only
-Synthetic nodes selector offers 100,2,000,10,000 and 50,000 nodes without a backend
+Synthetic nodes selector offers 100, 2,000, 10,000 and 50,000 nodes without a backend
 or embeddings provider. Test drag, wheel/pinch, keyboard rotation/zoom, hover,
 click and Titles both during convergence and after completion. Choose Archive
 again to verify canonical search and detail navigation. Synthetic fixture names
@@ -71,7 +71,7 @@ as a full workspace test.
 | Main-thread load tasks | Whole tasks overlapping the defined load/layout/render observation window | Worker execution time or production auth/database latency |
 | Server response timing | The stated route/provider/serialization harness | Costs outside that harness or actual transfer compression |
 
-The component harness runs30 warmup callbacks followed by240 measured intervals.
+The component harness runs 30 warmup callbacks followed by 240 measured intervals.
 Reports retain raw intervals and CPU samples. Summary quantiles sort a copy and
 select index `floor(sampleCount * quantile)`; aborted/empty runs retain their
 status and null empty metrics. CPU sample i runs at interval i's ending callback,
@@ -96,7 +96,7 @@ Retain the full duration of every overlapping main-thread task, including tasks
 crossing either boundary. The Long Tasks observer drains before and after two
 future tasks. Unsupported observation, errors, incomplete load, reported drops
 or missing optional browser drop metadata make completeness unknown. A missing
-count is not zero, and an empty entry array is not0 ms of CPU work. A native Chrome
+count is not zero, and an empty entry array is not 0 ms of CPU work. A native Chrome
 trace can provide separate task observations while retaining its own completeness
 limits. Keep worker tasks separate from the main-thread responsiveness criterion.
 
@@ -120,14 +120,14 @@ historical measurements, not new R27 captures. The R27 source audit verifies
 comment-stripped renderer/layout/picking equivalence; API cache variants and
 parser error handling changed separately. See the packet source/evidence map.
 
-The preserved Chrome presentation-cadence p95 values are16.667 ms at both 2k/6k
-and 50k/150k. Raw rAF p95 is about 17.6 ms, which fails the strict2k16.7 ms rAF
+The preserved Chrome presentation-cadence p95 values are 16.667 ms at both 2k/6k
+and 50k/150k. Raw rAF p95 is about 17.6 ms, which fails the strict 2k 16.7 ms rAF
 comparison. The reports keep that discrepancy and whole-trace dropped-frame
 events; the presentation interpretation remains subject to maintainer review.
 
-One controlled31,856,629-byte HTTP load on a fresh diagnostic page had an exact
-6,574.5 ms window with 3,733 overlapping main-thread tasks, maximum11.525 ms and
-no observed task over 100 ms. A previous load with about 1.2MB of raw picking text
+One controlled 31,856,629-byte HTTP load on a fresh diagnostic page had an exact
+6,574.5 ms window with 3,733 overlapping main-thread tasks, maximum 11.525 ms and
+no observed task over 100 ms. A previous load with about 1.2 MB of raw picking text
 already in the live diagnostic report had four tasks over 100 ms, maximum
 14,407.463 ms. Both traces remain attached. Large report DOM, accessibility queries
 and DevTools effects are candidate causes; their sole contribution is unproven.
@@ -136,8 +136,8 @@ Observer/trace loss completeness remains unknown where affirmative metadata is
 absent. These are controlled-window observations, not universal production claims.
 
 The separate route benchmark uses a preprocessed in-memory snapshot provider over
-loopback Fastify HTTP. It reports17,706,054 response bytes and 222.420–232.786 ms
-server timing at 50k/150k. Offline gzip1,145,839 B is not measured transferred
+loopback Fastify HTTP. It reports 17,706,054 response bytes and 222.420–232.786 ms
+server timing at 50k/150k. Offline gzip 1,145,839 B is not measured transferred
 compression. Production sessions, database/provider work and migrations are
 outside that timing scope; authentication/redaction have separate API tests.
 
