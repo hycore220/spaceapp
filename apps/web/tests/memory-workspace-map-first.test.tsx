@@ -362,7 +362,7 @@ describe("Memory atlas search-only experience", () => {
     expect(requests.mock.calls.some(([url]) => String(url).includes("/memory/nodes/fixture-"))).toBe(false);
   });
 
-  it("keeps pending 3D coordinates stable across unrelated workspace renders", async () => {
+  it("keeps pending 3D data empty and stable across unrelated workspace renders", async () => {
     class PendingWorker {
       postMessage() {}
       terminate() {}
@@ -375,8 +375,44 @@ describe("Memory atlas search-only experience", () => {
     await waitFor(() => expect(graph3DRenderer.mock.lastCall?.[0].loading).toBe(true));
     const pendingCoordinates = graph3DRenderer.mock.lastCall![0].coordinates;
     expect(pendingCoordinates.size).toBe(0);
+    const pendingNodes = graph3DRenderer.mock.lastCall![0].nodes;
+    expect(pendingNodes).toEqual([]);
+    expect(document.querySelector(".memory-graph-layout")?.getAttribute("data-visible-node-count")).toBe("0");
+    expect(screen.getByText("Connecting your memories…").getAttribute("role")).toBe("status");
     fireEvent.click(screen.getByRole("button", { name: "Toggle memory titles" }));
     expect(graph3DRenderer.mock.lastCall![0].coordinates).toBe(pendingCoordinates);
+    expect(graph3DRenderer.mock.lastCall![0].nodes).toBe(pendingNodes);
+  });
+  it("shows the first usable publication during convergence without remounting the 3D view", async () => {
+    let layoutWorker: PendingWorker | undefined;
+    class PendingWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      terminate() {}
+      postMessage(message: { mode?: string }) { if (message.mode === "3d") layoutWorker = this; }
+    }
+    vi.stubGlobal("Worker", PendingWorker);
+    const payload = graphPayload({ nodes: [memoryNode, roomNode], edges: [] }) as MemoryGraphOverviewResponse;
+    vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockResolvedValue(payload);
+    render(<MemoryWorkspace shellMode="desktop" activeRoomId={null} onClose={() => undefined} initialMode="atlas" />);
+    await screen.findByTestId("memory-graph-renderer");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
+    await waitFor(() => expect(layoutWorker).toBeDefined());
+    const surface = screen.getByTestId("memory-graph-3d-renderer");
+    expect(surface.getAttribute("data-node-ids")).toBe("");
+    const atlas = createMemoryAtlas(payload.data.nodes, [], false);
+    const points = new Map(atlas.nodes.map((node, index) => [node.id, { x: index * 10, y: index * 20, z: index * 30 }]));
+    const data = prepareMemoryRenderData(atlas.nodes, [], atlas.positions, points);
+    act(() => {
+      layoutWorker!.onmessage?.({ data: { kind: "nodes", nodes: atlas.nodes } });
+      layoutWorker!.onmessage?.({ data: { kind: "initial", atlas, data, depth: [...points], volume: 0, fullEdgeCount: 0, sourceLinkCount: 0 } });
+    });
+    expect(screen.getByTestId("memory-graph-3d-renderer")).toBe(surface);
+    expect(surface.getAttribute("data-node-ids")).toBe(atlas.nodes.map(node => node.id).join(","));
+    expect(surface.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByText("Connecting your memories…")).toBeNull();
+    act(() => layoutWorker!.onmessage?.({ data: { kind: "positions", coordinates: data.coordinates, extent: data.extent, pickingBounds: data.picking.bounds, depth: [...points], volume: 0, done: true } }));
+    expect(surface.getAttribute("aria-busy")).toBe("false");
+    expect(screen.getByTestId("memory-graph-3d-renderer")).toBe(surface);
   });
   it.each(["Calendar", "Review"])("opens canonical details in %s after leaving a synthetic 3D graph", async mode => {
     installSpaceRuntime({ ...liveRuntime, kind: "demo" });

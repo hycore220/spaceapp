@@ -18,6 +18,7 @@ import "./memory-atlas.css";
 
 const DesktopMemoryGraph = lazy(() => import("./DesktopMemoryGraph.js"));
 const EMPTY_DEPTH = new Map<string, MemoryPoint3D>();
+const EMPTY_ATLAS = createMemoryAtlas([], [], false);
 
 /** Coordinate canonical memory search/details,2D and streamed3D views. Demo-only synthetic graphs have local details and disable canonical search until Archive is restored. */
 export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }: {
@@ -140,7 +141,8 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
   const smallAtlas = useMemo(() => createMemoryAtlas(graph?.data.nodes ?? [], graph?.data.edges ?? [], false), [graph]);
   const { layout: layout3D, error: layout3DError } = useMemory3DLayout(synthetic3D ? null : graph3D, workspaceMode === "atlas" && view3D, synthetic3D);
   const error3D = fetchError3D ?? layout3DError;
-  const atlas = view3D && layout3D ? layout3D.atlas : smallAtlas;
+  // Keep the canvas/input mounted, but never pair Archive nodes with missing XYZ coordinates.
+  const atlas = view3D ? layout3D?.atlas ?? EMPTY_ATLAS : smallAtlas;
   const [layout, setLayout] = useState<{ atlas: typeof smallAtlas; positions: Map<string, MemoryAtlasPosition>; depth: Map<string, MemoryPoint3D> } | null>(null);
   useEffect(() => {
     if (workspaceMode !== "atlas" || view3D || !smallAtlas.nodes.length || typeof Worker === "undefined") return;
@@ -243,6 +245,7 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
                 </Suspense>
               </MemoryGraphErrorBoundary> : null}</div>
               {view3D ? <MemoryGraph3D nodes={atlas.nodes} edges={atlas.edges} positions={atlasPositions} coordinates={layout3D?.depth ?? EMPTY_DEPTH} renderData={layout3D?.data} layoutVolume={layout3D?.volume} forceCanvas={typeof Worker === "undefined"} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={fixtureCount ? id => setSelectedNodeId(id) : selectNode} loading={loading3D || layoutPending} resetToken={reset3D} benchmarkToken={benchmarkMode ? benchmarkToken : 0} benchmarkGpuTimings={benchmarkGpuTimings} benchmarkScene={benchmarkScene} benchmarkNativeEdges={benchmarkNativeEdges} benchmarkProjectedEdges={benchmarkProjectedEdges} onBenchmarkRunningChange={setBenchmarkRunning} onBenchmarkResult={setBenchmarkResult} /> : null}
+              {view3D && !layout3D && !error3D ? <div className="memory-graph-loading" role="status">Connecting your memories…</div> : null}
               {view3D && error3D ? <div role="alert">{error3D}</div> : null}
             </div>
             {!selectedNodeId && displayGroups.length > 0 ? <aside className="memory-atlas-topics" aria-label="Map topics">
