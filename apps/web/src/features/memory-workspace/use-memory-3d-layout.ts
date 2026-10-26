@@ -32,8 +32,8 @@ export function useMemory3DLayout(payload: MemoryGraphOverviewResponse | null, e
   const [layout, setLayout] = useState<Layout | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!enabled || (!payload && !fixtureCount)) return;
     setError(null);
+    if (!enabled || (!payload && !fixtureCount)) return;
     let active = true, worker: Worker | null = null, current: Layout | null = null;
     /** Stop once, retaining matching streamed data or a usable capped seed. */
     const fail = (message: string) => {

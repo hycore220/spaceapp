@@ -414,6 +414,48 @@ describe("Memory atlas search-only experience", () => {
     expect(surface.getAttribute("aria-busy")).toBe("false");
     expect(screen.getByTestId("memory-graph-3d-renderer")).toBe(surface);
   });
+  it.each(["matches", "empty", "error"] as const)("waits for the active 3D search result before reporting %s", async outcome => {
+    const archive = graphPayload({ nodes: [memoryNode], edges: [] }) as MemoryGraphOverviewResponse;
+    const response = outcome === "empty" ? graphPayload({ nodes: [], edges: [] }) as MemoryGraphOverviewResponse : archive;
+    let finishFetch: (value: MemoryGraphOverviewResponse) => void = () => undefined;
+    let failFetch: (error: Error) => void = () => undefined;
+    const pendingFetch = new Promise<MemoryGraphOverviewResponse>((resolve, reject) => { finishFetch = resolve; failFetch = reject; });
+    vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockImplementation(query => query?.limit === 50000 ? pendingFetch : Promise.resolve(archive));
+    let layoutWorker: PendingWorker | undefined;
+    class PendingWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      terminate() {}
+      postMessage(message: { mode?: string }) { if (message.mode === "3d") layoutWorker = this; }
+    }
+    vi.stubGlobal("Worker", PendingWorker);
+    render(<MemoryWorkspace shellMode="desktop" activeRoomId={null} onClose={() => undefined} initialMode="atlas" />);
+    await screen.findByTestId("memory-graph-renderer");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Agent" } });
+    fireEvent.submit(screen.getByRole("search"));
+    await screen.findByText("1 matching nodes");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
+    await waitFor(() => expect(graph3DRenderer.mock.lastCall?.[0].loading).toBe(true));
+    expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
+    if (outcome === "error") {
+      await act(async () => failFetch(new Error("Current 3D search failed")));
+      expect((await screen.findByRole("alert")).textContent).toBe("Current 3D search failed");
+      expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
+      return;
+    }
+    await act(async () => finishFetch(response));
+    await waitFor(() => expect(layoutWorker).toBeDefined());
+    expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
+    const atlas = createMemoryAtlas(response.data.nodes, [], false);
+    const points = new Map(atlas.nodes.map((node, index) => [node.id, { x: index * 10, y: 0, z: 0 }]));
+    const data = prepareMemoryRenderData(atlas.nodes, [], atlas.positions, points);
+    act(() => {
+      layoutWorker!.onmessage?.({ data: { kind: "nodes", nodes: atlas.nodes } });
+      layoutWorker!.onmessage?.({ data: { kind: "initial", atlas, data, depth: [...points], volume: 0, fullEdgeCount: 0, sourceLinkCount: 0 } });
+    });
+    expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
+    act(() => layoutWorker!.onmessage?.({ data: { kind: "positions", coordinates: data.coordinates, extent: data.extent, pickingBounds: data.picking.bounds, depth: [...points], volume: 0, done: true } }));
+    await screen.findByText(outcome === "empty" ? "No memories found. Try another search." : "1 matching nodes");
+  });
   it.each(["Calendar", "Review"])("opens canonical details in %s after leaving a synthetic 3D graph", async mode => {
     installSpaceRuntime({ ...liveRuntime, kind: "demo" });
     installFetch();
@@ -432,7 +474,27 @@ describe("Memory atlas search-only experience", () => {
   it("does not advertise synthetic graph nodes as search matches and restores archive search", async () => {
     installSpaceRuntime({ ...liveRuntime, kind: "demo" });
     installFetch();
-    const overview = vi.spyOn(liveRuntime.api, "memoryGraphOverview");
+    class CompletedWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      private stopped = false;
+      terminate() { this.stopped = true; }
+      postMessage(message: { nodes: MemoryGraphOverviewResponse["data"]["nodes"]; edges: MemoryGraphOverviewResponse["data"]["edges"]; mode?: string }) {
+        const atlas = createMemoryAtlas(message.nodes, message.edges, false);
+        const points = new Map(atlas.nodes.map((node, index) => [node.id, { x: index * 10, y: 0, z: 0 }]));
+        const data = prepareMemoryRenderData(atlas.nodes, atlas.edges, atlas.positions, points);
+        queueMicrotask(() => {
+          if (this.stopped) return;
+          if (message.mode !== "3d") { this.onmessage?.({ data: { positions: [...atlas.positions], depth: [...points] } }); return; }
+          for (const reply of [
+            { kind: "nodes", nodes: atlas.nodes },
+            { kind: "initial", atlas, data, depth: [...points], volume: 0, fullEdgeCount: atlas.edges.length, sourceLinkCount: 0 },
+            { kind: "positions", coordinates: data.coordinates, extent: data.extent, pickingBounds: data.picking.bounds, depth: [...points], volume: 0, done: true }
+          ]) this.onmessage?.({ data: reply });
+        });
+      }
+    }
+    vi.stubGlobal("Worker", CompletedWorker);
+    const overview = vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockResolvedValue(graphPayload({}) as MemoryGraphOverviewResponse);
     render(<MemoryWorkspace shellMode="desktop" activeRoomId={null} onClose={() => undefined} initialMode="atlas" />);
     await screen.findByTestId("memory-graph-renderer");
     const search = screen.getByRole("searchbox") as HTMLInputElement;
@@ -455,7 +517,7 @@ describe("Memory atlas search-only experience", () => {
     await screen.findByText(/matching nodes/);
     expect(search.getAttribute("aria-describedby")).toBeNull();
     expect(screen.queryByText(/Search is unavailable/)).toBeNull();
-    expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ q: "Agent", limit: 2000 }));
+    expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ q: "Agent", limit: 50000 }));
     fireEvent.change(size, { target: { value: "2000" } });
     fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
     expect(search.disabled).toBe(false);

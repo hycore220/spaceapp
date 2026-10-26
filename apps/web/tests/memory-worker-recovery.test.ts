@@ -21,6 +21,25 @@ beforeEach(() => { LayoutWorker.instances = []; vi.stubGlobal("Worker", LayoutWo
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("memory worker failure recovery", () => {
+  it("clears a previous layout failure while a replacement fetch is pending or 3D is disabled", () => {
+    const payload = { data: memoryGraphFixture(100) } as MemoryGraphOverviewResponse;
+    const { result, rerender } = renderHook(({ payload, enabled }: { payload: MemoryGraphOverviewResponse | null; enabled: boolean }) => useMemory3DLayout(payload, enabled), { initialProps: { payload: payload as MemoryGraphOverviewResponse | null, enabled: true } });
+    const failed = LayoutWorker.instances[0]!;
+    act(() => failed.onerror?.({ message: "Previous layout failed" }));
+    expect(result.current.error).toContain("Previous layout failed");
+    rerender({ payload: null, enabled: true });
+    expect(result.current.error).toBeNull();
+    expect(result.current.layout).toBeNull();
+    expect(LayoutWorker.instances).toHaveLength(1);
+    act(() => failed.onmessageerror?.());
+    expect(result.current.error).toBeNull();
+    rerender({ payload, enabled: true });
+    act(() => LayoutWorker.instances[1]!.onerror?.({ message: "Another layout failed" }));
+    expect(result.current.error).toContain("Another layout failed");
+    rerender({ payload, enabled: false });
+    expect(result.current.error).toBeNull();
+    expect(result.current.layout).toBeNull();
+  });
   it.each(["native", "protocol", "messageerror"])("keeps distinct, pickable nodes after a pre-initial %s error", mode => {
     const { result } = renderHook(() => useMemory3DLayout(null, true, 50000));
     const worker = LayoutWorker.instances[0]!;
