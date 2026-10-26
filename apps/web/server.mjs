@@ -391,7 +391,8 @@ const demoWorkspaceContentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "media-src 'none'",
   "connect-src 'none'",
-  "worker-src 'none'",
+  // Memory layout uses bundled same-origin workers; remote/blob workers stay blocked.
+  "worker-src 'self'",
   "manifest-src 'self'"
 ].join("; ");
 

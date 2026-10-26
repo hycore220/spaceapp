@@ -29,6 +29,16 @@ Cancelled generations stop publishing. Camera movement reuses uploaded buffers.
 Canvas fallback keeps at most 2,000 nodes and 6,000 edges when WebGL2 is unavailable
 or lost; restoration is handled when the browser delivers its restored event.
 
+If a layout worker fails after its first publication, the last usable layout
+remains interactive. Before that publication (including construction, transport
+or response errors), recovery builds a deterministic seed for at most 2,000
+nodes and 6,000 induced edges, without running force steps on the main thread.
+The alert identifies this recovery sample; it is not marked as converged. Toggle
+3D off/on to retry. Synthetic recovery preserves the requested graph's prefix
+IDs, types and retained edges without generating 50,000 nodes on the UI thread.
+The production `/demo-workspace` policy permits same-origin bundled workers only;
+remote/blob workers, network connections, frames and form submissions stay blocked.
+
 ## Reproduce the feature and tests
 
 Use the repository's Node version and isolated development checkout as described
