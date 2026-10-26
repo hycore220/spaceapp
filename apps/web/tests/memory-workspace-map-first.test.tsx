@@ -414,13 +414,19 @@ describe("Memory atlas search-only experience", () => {
     expect(surface.getAttribute("aria-busy")).toBe("false");
     expect(screen.getByTestId("memory-graph-3d-renderer")).toBe(surface);
   });
-  it.each(["matches", "empty", "error"] as const)("waits for the active 3D search result before reporting %s", async outcome => {
+  it.each((["success", "pending", "error"] as const).flatMap(state => (["matches", "empty", "error"] as const).map(outcome => ({ state, outcome }))))("waits for $outcome in 3D while the 2D request is $state", async ({ state, outcome }) => {
     const archive = graphPayload({ nodes: [memoryNode], edges: [] }) as MemoryGraphOverviewResponse;
     const response = outcome === "empty" ? graphPayload({ nodes: [], edges: [] }) as MemoryGraphOverviewResponse : archive;
     let finishFetch: (value: MemoryGraphOverviewResponse) => void = () => undefined;
     let failFetch: (error: Error) => void = () => undefined;
     const pendingFetch = new Promise<MemoryGraphOverviewResponse>((resolve, reject) => { finishFetch = resolve; failFetch = reject; });
-    vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockImplementation(query => query?.limit === 50000 ? pendingFetch : Promise.resolve(archive));
+    const pending2D = new Promise<MemoryGraphOverviewResponse>(() => undefined);
+    const overview = vi.spyOn(liveRuntime.api, "memoryGraphOverview").mockImplementation(query => {
+      if (query?.limit === 50000) return pendingFetch;
+      if (query?.q && state === "pending") return pending2D;
+      if (query?.q && state === "error") return Promise.reject(new Error("2D search failed"));
+      return Promise.resolve(archive);
+    });
     let layoutWorker: PendingWorker | undefined;
     class PendingWorker {
       onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -432,7 +438,13 @@ describe("Memory atlas search-only experience", () => {
     await screen.findByTestId("memory-graph-renderer");
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Agent" } });
     fireEvent.submit(screen.getByRole("search"));
-    await screen.findByText("1 matching nodes");
+    await waitFor(() => expect(overview).toHaveBeenCalledWith(expect.objectContaining({ q: "Agent", month: "all" })));
+    if (state === "success") await screen.findByText("1 matching nodes");
+    else await waitFor(() => {
+      const current = graphRenderer.mock.lastCall?.[0];
+      if (state === "pending") expect(current?.loading).toBe(true);
+      expect(current?.error).toBe(state === "error" ? "2D search failed" : null);
+    });
     fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
     await waitFor(() => expect(graph3DRenderer.mock.lastCall?.[0].loading).toBe(true));
     expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
@@ -455,6 +467,9 @@ describe("Memory atlas search-only experience", () => {
     expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
     act(() => layoutWorker!.onmessage?.({ data: { kind: "positions", coordinates: data.coordinates, extent: data.extent, pickingBounds: data.picking.bounds, depth: [...points], volume: 0, done: true } }));
     await screen.findByText(outcome === "empty" ? "No memories found. Try another search." : "1 matching nodes");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle 3D memory view" }));
+    if (state === "success") await screen.findByText("1 matching nodes");
+    else expect(document.querySelector(".memory-atlas-search-status")).toBeNull();
   });
   it.each(["Calendar", "Review"])("opens canonical details in %s after leaving a synthetic 3D graph", async mode => {
     installSpaceRuntime({ ...liveRuntime, kind: "demo" });
